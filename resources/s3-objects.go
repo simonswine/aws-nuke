@@ -21,21 +21,57 @@ func (n *S3Nuke) ListObjects() ([]Resource, error) {
 	}
 
 	for _, name := range buckets {
-		params := &s3.ListObjectsInput{
+		params := &s3.ListObjectVersionsInput{
 			Bucket: &name,
 		}
 
-		resp, err := n.Service.ListObjects(params)
-		if err != nil {
-			return nil, err
-		}
+		for {
+			resp, err := n.Service.ListObjectVersions(params)
+			if err != nil {
+				return nil, err
+			}
 
-		for _, out := range resp.Contents {
-			resources = append(resources, &S3Object{
-				svc:    n.Service,
-				bucket: name,
-				key:    *out.Key,
-			})
+			for _, out := range resp.Versions {
+				if out.VersionId != nil && *out.VersionId != "null" {
+					resources = append(resources, &S3ObjectVersion{
+						svc:       n.Service,
+						bucket:    name,
+						key:       *out.Key,
+						versionId: *out.VersionId,
+					})
+				} else {
+					resources = append(resources, &S3Object{
+						svc:    n.Service,
+						bucket: name,
+						key:    *out.Key,
+					})
+				}
+			}
+
+			for _, out := range resp.DeleteMarkers {
+				if out.VersionId != nil && *out.VersionId != "null" {
+					resources = append(resources, &S3ObjectVersion{
+						svc:       n.Service,
+						bucket:    name,
+						key:       *out.Key,
+						versionId: *out.VersionId,
+					})
+				} else {
+					resources = append(resources, &S3Object{
+						svc:    n.Service,
+						bucket: name,
+						key:    *out.Key,
+					})
+				}
+			}
+
+			// make sure to list all with more than 1000 objects
+			if *resp.IsTruncated {
+				params.KeyMarker = resp.NextKeyMarker
+				continue
+			}
+
+			break
 		}
 	}
 
